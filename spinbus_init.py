@@ -1,6 +1,7 @@
 import numpy as np
 import matplotlib.pyplot as plt
 from scipy.integrate import solve_ivp
+from scipy.optimize import root_scalar
 
 #units
 hbar = 0.6582119569       # micro-eV * ns
@@ -40,6 +41,41 @@ def epsilon_of_t(t):
 
 def J_of_epsilon(epsilon):
     return J0 * np.exp(epsilon/eps0)
+
+def crossing_equation(epsilon):
+    return J_of_epsilon(epsilon) - B_parallel
+
+result = root_scalar(crossing_equation, bracket=[eps_end, eps_start], method='brentq')
+eps_cross = result.root
+print("Crossing epsilon =", eps_cross, "mV")
+eps_jump_amp = 0.18    # mV
+
+eps_jump_high = eps_cross + eps_jump_amp / 2.0
+eps_jump_low  = eps_cross - eps_jump_amp / 2.0
+continuous_drop = (eps_start - eps_end) - eps_jump_amp
+
+slow_rate = continuous_drop / T_ramp    # mV/ns
+# Time when we reach the upper edge of the jump
+t_jump = (eps_start - eps_jump_high) / slow_rate
+
+
+def epsilon_of_t(t):
+
+    if t < t_jump:
+
+        # Slow ramp before crossing
+        return eps_start - slow_rate * t
+
+    elif t <= T_ramp:
+
+        # Instantaneous jump has occurred.
+        # Continue slow ramp from lower side.
+        return eps_jump_low - slow_rate * (t - t_jump)
+
+    else:
+
+        # Final idle period
+        return eps_end
 
 # J(t) and dJ/dt diagnostics
 
