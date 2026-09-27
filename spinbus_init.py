@@ -12,21 +12,111 @@ def mT_to_ueV(B_mT):
     return g * mu_B * (B_mT / 1000.0)  # Convert mT to Tesla
 
 B_parallel=mT_to_ueV(20.0)
-dB_parallel=mT_to_ueV(1.0)
+dB_parallel=mT_to_ueV(1.3)
 dB_perp=mT_to_ueV(0.3)
 
-T_pulse=200.0 #ns
+# Exchange J(epsilon)
 
-J_start = 10.0            # micro-eV
-J_end = 0.0               # micro-eV
+h = 2.0 * np.pi * hbar       # micro-eV * ns
 
-def J_of_t(t):
-    return J_start + (J_end - J_start) * (t / T_pulse)
+# Dial-fit reconstruction:
+# 160 MHz = 0.160 ns^-1
+J0 = h * 0.160               # micro-eV
+eps0 = 0.27241 #mV
+eps_start = 0.8 #mV
+eps_end = -4.0 #mV
+
+T_pulse = 210.0              # ns
+T_idle = 10.0                # ns
+T_ramp = T_pulse - T_idle    # 200 ns
+
+
+def epsilon_of_t(t):
+    if t <= T_ramp:
+        return eps_start + (eps_end - eps_start) * (t / T_ramp)
+
+    return eps_end
+
+
+def J_of_epsilon(epsilon):
+    return J0 * np.exp(epsilon/eps0)
+
+# J(t) and dJ/dt diagnostics
+
+times = np.linspace(0, T_pulse, 2000)
+
+epsilon_t = np.array([
+    epsilon_of_t(t) for t in times
+])
+
+J_t = np.array([
+    J_of_epsilon(eps) for eps in epsilon_t
+])
+
+plt.figure()
+
+plt.plot(times, J_t, label='J(t)')
+plt.axhline(
+    B_parallel,
+    linestyle='--',
+    label='B_parallel'
+)
+
+plt.xlabel('Time (ns)')
+plt.ylabel('Energy (micro-eV)')
+plt.title('Exchange Interaction J(t)')
+plt.legend()
+plt.tight_layout()
+plt.show()
+
+dJ_dt = np.gradient(
+    J_t,
+    times,
+    edge_order=2
+)
+
+plt.figure()
+
+plt.plot(times, dJ_dt)
+
+plt.xlabel('Time (ns)')
+plt.ylabel('dJ/dt (micro-eV/ns)')
+plt.title('Rate of Change of Exchange Interaction')
+plt.tight_layout()
+plt.show()
+
+cross_index = np.argmin(
+    np.abs(J_t - B_parallel)
+)
+
+t_cross = times[cross_index]
+J_cross = J_t[cross_index]
+sweep_rate_cross=abs(dJ_dt[cross_index])
+#S-T- coupling
+V_STm = dB_perp/(2.0*np.sqrt(2.0))
+#Landau Zener Parameter
+LZ_exponent = (2.0 * np.pi * V_STm**2) / (hbar * sweep_rate_cross)
+
+P_diabatic = np.exp(-LZ_exponent)
+P_adiabatic = 1.0 - P_diabatic
+
+print("S-T- crossing time =", t_cross, "ns")
+print("J at crossing =", J_cross, "micro-eV")
+print("|dJ/dt| at crossing =", sweep_rate_cross, "micro-eV/ns")
+print("S-T- coupling V =", V_STm, "micro-eV")
+print("Landau-Zener exponent =", LZ_exponent)
+print("Estimated diabatic probability =", P_diabatic)
+print("Estimated adiabatic-transition probability =", P_adiabatic)
 
 # Hamiltonian basis = {|T0>, |S>, |T->}
 
+print("J(start) =", J_of_epsilon(eps_start))
+print("J(end)   =", J_of_epsilon(eps_end))
+print("B energy =", B_parallel)
+
 def H(t):
-    J = J_of_t(t)
+    epsilon = epsilon_of_t(t)
+    J = J_of_epsilon(epsilon)
     return np.array([[0.0, dB_parallel/2, 0.0],
                      [dB_parallel/2.0, -J, dB_perp/(2.0*np.sqrt(2.0))],
                      [0.0, dB_perp/(2.0*np.sqrt(2.0)), -B_parallel]]
@@ -78,6 +168,20 @@ plt.plot(times, P_Tm, label='P(T-)')
 plt.xlabel('Time (ns)') 
 plt.ylabel('Population')
 plt.title('Spin Bus Initialization Dynamics') 
+plt.legend()
+plt.tight_layout()
+plt.show()
+
+energies = np.array([
+    np.linalg.eigvalsh(H(t)) for t in times
+])
+plt.figure()
+plt.plot(times, energies[:,0], label='E1')
+plt.plot(times, energies[:,1], label='E2')
+plt.plot(times, energies[:,2], label='E3')
+plt.xlabel('Time (ns)')
+plt.ylabel('Energy (micro-eV)')
+plt.title('Instantaneous Energy Levels')
 plt.legend()
 plt.tight_layout()
 plt.show()
